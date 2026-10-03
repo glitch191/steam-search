@@ -1,0 +1,75 @@
+name: Release build
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      # Installs the toolchain pinned in rust-toolchain.toml.
+      - name: Install Rust toolchain
+        run: rustup toolchain install
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        working-directory: src-tauri
+        run: cargo test --locked
+
+      - name: Set version label
+        id: label
+        env:
+          EVENT: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          if ($env:EVENT -eq "release") {
+            $tag = $env:RELEASE_TAG
+          } else {
+            $tag = "dev-$($env:GITHUB_SHA.Substring(0, 7))"
+          }
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "APP_VERSION=$($tag -replace '^v', '')" >> $env:GITHUB_ENV
+
+      - name: Build executable
+        run: npx tauri build --no-bundle -- --locked
+
+      - name: Name executable and compute checksum
+        run: |
+          New-Item -ItemType Directory -Force release | Out-Null
+          $name = "steam-search-${{ steps.label.outputs.tag }}-windows.exe"
+          Copy-Item src-tauri/target/release/steam-search.exe "release/$name"
+          $hash = (Get-FileHash "release/$name" -Algorithm SHA256).Hash.ToLower()
+          "$hash  $name" | Out-File -Encoding ascii -NoNewline "release/$name.sha256"
+          Get-Content "release/$name.sha256"
+
+      - name: Upload to release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.label.outputs.tag }}
+        run: gh release upload $env:TAG (Get-ChildItem release/*).FullName --clobber
+
+      - name: Upload workflow artifact
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v7
+        with:
+          name: steam-search-${{ steps.label.outputs.tag }}-windows
+          path: release/

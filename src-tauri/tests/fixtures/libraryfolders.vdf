@@ -1,0 +1,22 @@
+// Fictional library layout used by tests. {STEAM} and {SECOND} are replaced at runtime.
+"libraryfolders"
+{
+	"0"
+	{
+		"path"		"{STEAM}"
+		"label"		""
+		"apps"
+		{
+			"1001"		"1000"
+		}
+	}
+	"1"
+	{
+		"path"		"{SECOND}"
+		"label"		""
+		"apps"
+		{
+			"2001"		"1000"
+		}
+	}
+}

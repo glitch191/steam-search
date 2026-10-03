@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>steam-search</title>
+    <script type="module" src="/src/main.ts"></script>
+  </head>
+  <body>
+    <main id="app">
+      <input
+        id="query"
+        type="text"
+        placeholder="Search installed games"
+        aria-label="Search installed games"
+        aria-controls="results"
+        autocomplete="off"
+        spellcheck="false"
+      />
+      <ul id="results" role="listbox" aria-label="Installed games" hidden></ul>
+      <p id="status" role="status" hidden></p>
+    </main>
+  </body>
+</html>
