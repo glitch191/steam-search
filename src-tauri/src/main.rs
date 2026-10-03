@@ -45,6 +45,8 @@ struct AppState {
     scanning: AtomicBool,
     /// Logical height requested by the page, reused when the window moves to another monitor.
     height: Mutex<f64>,
+    /// Physical bottom edge to keep fixed while resizing, when the window sits above the taskbar.
+    bottom_edge: Mutex<Option<i32>>,
     shown_at: Mutex<Option<Instant>>,
 }
 
@@ -98,7 +100,12 @@ fn fit(height: f64, window: WebviewWindow, state: State<AppState>) {
     let height = height.clamp(1.0, 2000.0);
     *state.height.lock().unwrap() = height;
     if let (Ok(size), Ok(scale)) = (window.inner_size(), window.scale_factor()) {
-        let _ = window.set_size(PhysicalSize::new(size.width, (height * scale).round() as u32));
+        let new_height = (height * scale).round() as u32;
+        // Above a bottom taskbar the window grows upward: keep its bottom edge in place.
+        if let (Some(bottom), Ok(pos)) = (*state.bottom_edge.lock().unwrap(), window.outer_position()) {
+            let _ = window.set_position(PhysicalPosition::new(pos.x, bottom - new_height as i32));
+        }
+        let _ = window.set_size(PhysicalSize::new(size.width, new_height));
     }
 }
 
@@ -114,7 +121,7 @@ fn show_search(app: &AppHandle) {
     let Some(window) = app.get_webview_window(WINDOW) else { return };
     let state = app.state::<AppState>();
     *state.shown_at.lock().unwrap() = Some(Instant::now());
-    place_on_cursor_monitor(app, &window, *state.height.lock().unwrap());
+    place_near_tray(app, &window, *state.height.lock().unwrap());
     let _ = window.show();
     let _ = window.set_focus();
     let _ = app.emit_to(WINDOW, "shown", ());
@@ -139,23 +146,39 @@ fn toggle_search(app: &AppHandle) {
     }
 }
 
-/// Centers the window horizontally in the work area of the monitor under the cursor,
-/// in the upper third, sized for that monitor's scale factor.
-fn place_on_cursor_monitor(app: &AppHandle, window: &WebviewWindow, height: f64) {
-    let monitor = app
-        .cursor_position()
-        .ok()
-        .and_then(|c| app.monitor_from_point(c.x, c.y).ok().flatten())
+/// Places the window just above the tray icon (or below it when the taskbar is at the top),
+/// inside the work area of the monitor that holds the tray, sized for that monitor's scale factor.
+/// Falls back to the bottom right corner of the primary monitor when the icon position is unknown.
+fn place_near_tray(app: &AppHandle, window: &WebviewWindow, height: f64) {
+    let icon = app.tray_by_id(TRAY).and_then(|t| t.rect().ok().flatten()).map(|r| {
+        let pos = r.position.to_physical::<i32>(1.0);
+        let size = r.size.to_physical::<u32>(1.0);
+        (pos.x + size.width as i32 / 2, pos.y + size.height as i32 / 2)
+    });
+    let monitor = icon
+        .and_then(|(x, y)| app.monitor_from_point(x as f64, y as f64).ok().flatten())
         .or_else(|| app.primary_monitor().ok().flatten());
     let Some(monitor) = monitor else { return };
     let area = monitor.work_area();
     let scale = monitor.scale_factor();
+    let margin = (8.0 * scale).round() as i32;
     let width = ((WINDOW_WIDTH * scale).round() as u32).min(area.size.width * 9 / 10);
-    let x = area.position.x + (area.size.width - width) as i32 / 2;
-    let y = area.position.y + area.size.height as i32 / 5;
+    let height_px = (height * scale).round() as u32;
+    let (left, top) = (area.position.x, area.position.y);
+    let (right, bottom) = (left + area.size.width as i32, top + area.size.height as i32);
+
+    let (center_x, icon_y) = icon.unwrap_or((right, bottom));
+    let x = (center_x - width as i32 / 2).clamp(left + margin, right - width as i32 - margin);
+    let taskbar_at_top = icon_y < top + area.size.height as i32 / 2;
+    let (y, bottom_edge) = if taskbar_at_top {
+        (top + margin, None)
+    } else {
+        (bottom - margin - height_px as i32, Some(bottom - margin))
+    };
+    *app.state::<AppState>().bottom_edge.lock().unwrap() = bottom_edge;
     // Move first so a DPI change between monitors is applied before sizing.
     let _ = window.set_position(PhysicalPosition::new(x, y));
-    let _ = window.set_size(PhysicalSize::new(width, (height * scale).round() as u32));
+    let _ = window.set_size(PhysicalSize::new(width, height_px));
 }
 
 /// Rescans the libraries on a background thread. The UI keeps using the cached list meanwhile.
@@ -223,9 +246,17 @@ fn apply_hotkey(app: &AppHandle) {
     }
 }
 
+/// Applies startWithWindows in release builds only, so dev builds never register themselves.
+fn sync_start_with_windows(config: &Config) {
+    if cfg!(not(debug_assertions)) {
+        config::apply_start_with_windows(config);
+    }
+}
+
 fn reload_settings(app: &AppHandle) {
     let config = config::load();
     log("settings reloaded");
+    sync_start_with_windows(&config);
     *app.state::<AppState>().config.lock().unwrap() = config;
     apply_hotkey(app);
     start_scan(app);
@@ -258,6 +289,10 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
             "rescan" => start_scan(app),
             "autostart" => {
                 let wanted = autostart_item.is_checked().unwrap_or(false);
+                let state = app.state::<AppState>();
+                let mut config = state.config.lock().unwrap();
+                config.start_with_windows = wanted;
+                config::save(&config);
                 match autostart::set_enabled(wanted) {
                     Ok(()) => log(&format!("start with Windows {}", if wanted { "enabled" } else { "disabled" })),
                     Err(e) => {
@@ -304,11 +339,13 @@ fn main() {
             config: Mutex::new(config::load()),
             scanning: AtomicBool::new(false),
             height: Mutex::new(58.0),
+            bottom_edge: Mutex::new(None),
             shown_at: Mutex::new(None),
         })
         .invoke_handler(tauri::generate_handler![search, launch, hide, fit, ready])
         .setup(|app| {
             log(&format!("{APP_NAME} {VERSION} started"));
+            sync_start_with_windows(&app.state::<AppState>().config.lock().unwrap());
             build_tray(app.handle())?;
             apply_hotkey(app.handle());
             start_scan(app.handle());

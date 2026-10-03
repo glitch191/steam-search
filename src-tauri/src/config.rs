@@ -19,11 +19,17 @@ pub struct Config {
     pub hotkey: String,
     pub max_results: usize,
     pub steam_path: String,
+    pub start_with_windows: bool,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Self { hotkey: DEFAULT_HOTKEY.into(), max_results: DEFAULT_MAX_RESULTS, steam_path: String::new() }
+        Self {
+            hotkey: DEFAULT_HOTKEY.into(),
+            max_results: DEFAULT_MAX_RESULTS,
+            steam_path: String::new(),
+            start_with_windows: true,
+        }
     }
 }
 
@@ -86,7 +92,28 @@ pub fn parse(text: &str) -> Config {
         Some(Value::String(s)) => config.steam_path = s.trim().to_string(),
         Some(v) => log(&format!("invalid steamPath {v}, ignoring it")),
     }
+    match json.get("startWithWindows") {
+        None => {}
+        Some(Value::Bool(b)) => config.start_with_windows = *b,
+        Some(v) => log(&format!("invalid startWithWindows {v}, using true")),
+    }
     config
+}
+
+/// Writes the config back to disk, for settings changed from the tray menu.
+pub fn save(config: &Config) {
+    let _ = fs::create_dir_all(app_dir());
+    if let Err(e) = fs::write(config_path(), serde_json::to_string_pretty(config).unwrap() + "\n") {
+        log(&format!("cannot write config.json: {e}"));
+    }
+}
+
+/// Applies `startWithWindows` to the Run registry key. Also refreshes the stored path,
+/// so the entry follows the executable if it was moved.
+pub fn apply_start_with_windows(config: &Config) {
+    if let Err(e) = crate::autostart::set_enabled(config.start_with_windows) {
+        log(&format!("cannot update start with Windows: {e}"));
+    }
 }
 
 /// Parses a hotkey such as "Ctrl+Shift+Insert". Accepts "Ins" for Insert and "Win" for the Windows key.
