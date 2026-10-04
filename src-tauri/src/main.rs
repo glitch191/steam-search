@@ -293,7 +293,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
                 let mut config = state.config.lock().unwrap();
                 config.start_with_windows = wanted;
                 config::save(&config);
-                match autostart::set_enabled(wanted) {
+                match autostart::set_enabled(wanted, true) {
                     Ok(()) => log(&format!("start with Windows {}", if wanted { "enabled" } else { "disabled" })),
                     Err(e) => {
                         log(&format!("cannot change start with Windows: {e}"));
