@@ -38,6 +38,13 @@ the download, compare the file content with:
 The executable is not code-signed, so Windows SmartScreen may warn on first launch ("More info",
 then "Run anyway"). There is no installer: put the file in a folder of your choice and run it.
 
+## Changing the hotkey
+
+Right-click the tray icon and choose **Change hotkey**. The search window asks for the new
+combination: press it (at least one modifier, or a function key alone). It is applied and saved
+immediately. If another application already uses it, the window says so and waits for another
+combination. Escape, or clicking elsewhere, cancels and keeps the current hotkey.
+
 ## Configuration
 
 Settings live in `%APPDATA%\steam-search\config.json`, created on first launch. Open it from the tray
@@ -54,7 +61,7 @@ menu (**Open config file**), edit it, then choose **Reload settings**.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `hotkey` | `Ctrl+Shift+Insert` | Global shortcut that opens or closes the window. Modifiers: `Ctrl`, `Shift`, `Alt`, `Win`. `Ins` is accepted for `Insert`. |
+| `hotkey` | `Ctrl+Shift+Insert` | Global shortcut that opens or closes the window. Easiest way to change it: tray menu, **Change hotkey**, then press the new combination (Escape cancels). Modifiers: `Ctrl`, `Shift`, `Alt`, `Win`. `Ins` is accepted for `Insert`. |
 | `maxResults` | `50` | Maximum number of results (1-500). Eight rows are visible, the rest scrolls. |
 | `steamPath` | empty | Steam folder, only needed if automatic detection fails (JSON escaping: `"D:\\Steam"`). |
 | `startWithWindows` | `true` | Adds the program to the current user's startup programs (`HKCU\...\Run`). |

@@ -38,6 +38,9 @@ struct Library {
     games: Vec<Game>,
 }
 
+/// Tray menu entry that shows the current hotkey.
+struct HotkeyMenuItem(MenuItem<tauri::Wry>);
+
 struct AppState {
     library: Mutex<Library>,
     searcher: Mutex<Searcher>,
@@ -48,6 +51,8 @@ struct AppState {
     /// Physical bottom edge to keep fixed while resizing, when the window sits above the taskbar.
     bottom_edge: Mutex<Option<i32>>,
     shown_at: Mutex<Option<Instant>>,
+    /// True while the window waits for a new hotkey; the global hotkey is unregistered meanwhile.
+    capturing: AtomicBool,
 }
 
 #[derive(Serialize)]
@@ -109,6 +114,39 @@ fn fit(height: f64, window: WebviewWindow, state: State<AppState>) {
     }
 }
 
+/// Applies a hotkey captured by the page. On failure the previous hotkey is restored
+/// and the error is returned for display.
+#[tauri::command]
+fn set_hotkey(hotkey: String, app: AppHandle) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    if config::parse_hotkey(&hotkey).is_none() {
+        return Err(format!("{hotkey} is not a supported shortcut."));
+    }
+    let previous = std::mem::replace(&mut state.config.lock().unwrap().hotkey, hotkey.clone());
+    if !apply_hotkey(&app) {
+        state.config.lock().unwrap().hotkey = previous;
+        // Keep waiting for another combination: the hotkey stays unregistered while capturing.
+        let _ = app.global_shortcut().unregister_all();
+        return Err(format!("{hotkey} is already used by another application. Try another shortcut."));
+    }
+    state.capturing.store(false, Ordering::SeqCst);
+    config::save(&state.config.lock().unwrap());
+    log(&format!("hotkey changed to {hotkey} from the tray menu"));
+    hide_search(&app);
+    Ok(())
+}
+
+/// Opens the window in hotkey capture mode. The global hotkey is released so that
+/// pressing the current combination again reaches the window.
+fn start_hotkey_capture(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    state.capturing.store(true, Ordering::SeqCst);
+    let _ = app.global_shortcut().unregister_all();
+    let current = state.config.lock().unwrap().hotkey.clone();
+    show_search(app);
+    let _ = app.emit_to(WINDOW, "capture-hotkey", current);
+}
+
 /// Called by the page once the search field has focus after "shown".
 #[tauri::command]
 fn ready(state: State<AppState>) {
@@ -133,6 +171,10 @@ fn hide_search(app: &AppHandle) {
         if window.is_visible().unwrap_or(false) {
             let _ = window.hide();
             let _ = app.emit_to(WINDOW, "hidden", ());
+            // Closing the window during a hotkey change cancels it: restore the current hotkey.
+            if app.state::<AppState>().capturing.swap(false, Ordering::SeqCst) {
+                apply_hotkey(app);
+            }
         }
     }
 }
@@ -222,12 +264,15 @@ fn scan(steam_path: &str) -> (bool, Vec<Game>) {
     }
 }
 
-/// Registers the configured hotkey and reports failures in the tray tooltip and the log.
-fn apply_hotkey(app: &AppHandle) {
+/// Registers the configured hotkey, shows it in the tray menu, and reports failures in the
+/// tray tooltip and the log. Returns true when the hotkey is registered.
+fn apply_hotkey(app: &AppHandle) -> bool {
     let hotkey = app.state::<AppState>().config.lock().unwrap().hotkey.clone();
     let shortcuts = app.global_shortcut();
     let _ = shortcuts.unregister_all();
-    let tooltip = match config::parse_hotkey(&hotkey).map(|s| shortcuts.register(s)) {
+    let result = config::parse_hotkey(&hotkey).map(|s| shortcuts.register(s));
+    let registered = matches!(result, Some(Ok(())));
+    let tooltip = match result {
         Some(Ok(())) => {
             log(&format!("hotkey {hotkey} registered"));
             format!("{APP_NAME} ({hotkey})")
@@ -244,6 +289,10 @@ fn apply_hotkey(app: &AppHandle) {
     if let Some(tray) = app.tray_by_id(TRAY) {
         let _ = tray.set_tooltip(Some(tooltip));
     }
+    if let Some(item) = app.try_state::<HotkeyMenuItem>() {
+        let _ = item.0.set_text(format!("Change hotkey ({hotkey})..."));
+    }
+    registered
 }
 
 /// Applies startWithWindows in release builds only, so dev builds never register themselves.
@@ -263,6 +312,9 @@ fn reload_settings(app: &AppHandle) {
 }
 
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
+    let hotkey = app.state::<AppState>().config.lock().unwrap().hotkey.clone();
+    let hotkey_item = MenuItem::with_id(app, "hotkey", format!("Change hotkey ({hotkey})..."), true, None::<&str>)?;
+    app.manage(HotkeyMenuItem(hotkey_item.clone()));
     let autostart_item =
         CheckMenuItem::with_id(app, "autostart", "Start with Windows", true, autostart::is_enabled(), None::<&str>)?;
     let menu = Menu::with_items(
@@ -272,6 +324,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
             &MenuItem::with_id(app, "rescan", "Rescan library", true, None::<&str>)?,
             &autostart_item,
             &PredefinedMenuItem::separator(app)?,
+            &hotkey_item,
             &MenuItem::with_id(app, "config", "Open config file", true, None::<&str>)?,
             &MenuItem::with_id(app, "reload", "Reload settings", true, None::<&str>)?,
             &PredefinedMenuItem::separator(app)?,
@@ -287,6 +340,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
         .on_menu_event(move |app, event| match event.id().as_ref() {
             "open" => show_search(app),
             "rescan" => start_scan(app),
+            "hotkey" => start_hotkey_capture(app),
             "autostart" => {
                 let wanted = autostart_item.is_checked().unwrap_or(false);
                 let state = app.state::<AppState>();
@@ -341,8 +395,9 @@ fn main() {
             height: Mutex::new(58.0),
             bottom_edge: Mutex::new(None),
             shown_at: Mutex::new(None),
+            capturing: AtomicBool::new(false),
         })
-        .invoke_handler(tauri::generate_handler![search, launch, hide, fit, ready])
+        .invoke_handler(tauri::generate_handler![search, launch, hide, fit, ready, set_hotkey])
         .setup(|app| {
             log(&format!("{APP_NAME} {VERSION} started"));
             sync_start_with_windows(&app.state::<AppState>().config.lock().unwrap());
