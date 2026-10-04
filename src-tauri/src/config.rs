@@ -111,7 +111,7 @@ pub fn save(config: &Config) {
 /// Applies `startWithWindows` to the Run registry key. Also refreshes the stored path,
 /// so the entry follows the executable if it was moved.
 pub fn apply_start_with_windows(config: &Config) {
-    if let Err(e) = crate::autostart::set_enabled(config.start_with_windows) {
+    if let Err(e) = crate::autostart::set_enabled(config.start_with_windows, false) {
         log(&format!("cannot update start with Windows: {e}"));
     }
 }
