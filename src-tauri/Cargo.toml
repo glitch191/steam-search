@@ -1,6 +1,6 @@
 [package]
 name = "steam-search"
-version = "0.1.0"
+version = "0.1.1"
 description = "Lightweight tray launcher for installed Steam games"
 license = "MIT"
 edition = "2021"
