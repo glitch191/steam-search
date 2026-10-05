@@ -20,5 +20,8 @@ try {
 
 New-Item -ItemType Directory -Force $target | Out-Null
 Copy-Item (Join-Path $root "src-tauri\target\release\steam-search.exe") $exe -Force
-Start-Process $exe
+# Start it through Explorer so it runs as a normal desktop process. Started directly from a
+# packaged app (such as a terminal inside one), its registry writes would be redirected to a
+# private copy and the startup entry would not be visible to Windows.
+Start-Process explorer.exe -ArgumentList "`"$exe`""
 Write-Host "Installed and started $exe"

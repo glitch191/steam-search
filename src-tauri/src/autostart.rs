@@ -1,118 +1,85 @@
-//! "Start with Windows" through a Task Scheduler task that runs at the current user's sign-in.
+//! "Start with Windows" through the current user's `Run` registry key, so the program appears
+//! in Settings > Apps > Startup and in Task Manager's Startup apps.
 //!
-//! An earlier version used the `HKCU\...\Run` registry key. When the program is started from a
-//! packaged (MSIX) app, Windows redirects its registry writes to a private copy, so that entry was
-//! never seen at sign-in. The task is registered by the Task Scheduler service, which is not
-//! affected, and needs no administrator rights. Leftover `Run` entries are removed.
+//! Windows only launches a `Run` entry whose `StartupApproved\Run` value is enabled (or missing);
+//! Settings and Task Manager toggle that value. Version 0.2.1 used a Task Scheduler logon task
+//! instead; it is removed here so the program does not start twice.
+//!
+//! Note: when this program is started from a packaged (MSIX) app, Windows redirects its registry
+//! writes to a private copy that Explorer never reads. Start it normally (from Explorer, a
+//! shortcut or at sign-in) for these entries to take effect.
 
 use crate::config::APP_NAME;
 use std::os::windows::process::CommandExt;
-use std::process::{Command, Output};
-use winreg::enums::{HKEY_CURRENT_USER, KEY_SET_VALUE};
-use winreg::RegKey;
+use std::process::Command;
+use winreg::enums::{RegType, HKEY_CURRENT_USER, KEY_READ, KEY_SET_VALUE};
+use winreg::{RegKey, RegValue};
 
 const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
 const APPROVED_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run";
+/// "Enabled" as written by Settings and Task Manager: first byte 2, then 11 zero bytes.
+const APPROVED_ENABLED: [u8; 12] = [2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 /// Prevents a console window from flashing when schtasks.exe runs.
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
-fn schtasks(args: &[&str]) -> std::io::Result<Output> {
-    Command::new("schtasks.exe").args(args).creation_flags(CREATE_NO_WINDOW).output()
-}
-
-/// The task definition as XML, or None when the task does not exist.
-fn task_xml() -> Option<String> {
-    let out = schtasks(&["/query", "/tn", APP_NAME, "/xml"]).ok()?;
-    out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
-}
-
-/// True when the task exists and was not disabled in Task Scheduler.
+/// True when the `Run` entry exists and is not disabled in Settings or Task Manager.
 pub fn is_enabled() -> bool {
-    task_xml().is_some_and(|xml| !xml.contains("<Enabled>false</Enabled>"))
+    RegKey::predef(HKEY_CURRENT_USER)
+        .open_subkey_with_flags(RUN_KEY, KEY_READ)
+        .and_then(|k| k.get_value::<String, _>(APP_NAME))
+        .is_ok()
+        && approval() != Some(false)
 }
 
-/// Enables or disables start with Windows. With `override_disabled` false, a task the user
-/// disabled in Task Scheduler stays disabled.
+/// Approval state: None when missing, Some(true) when enabled, Some(false) when disabled
+/// (odd first byte).
+fn approval() -> Option<bool> {
+    let value = RegKey::predef(HKEY_CURRENT_USER)
+        .open_subkey_with_flags(APPROVED_KEY, KEY_READ)
+        .and_then(|k| k.get_raw_value(APP_NAME))
+        .ok()?;
+    Some(value.bytes.first().is_some_and(|b| b % 2 == 0))
+}
+
+/// Enables or disables start with Windows. With `override_disabled` false, an entry the user
+/// disabled in Settings or Task Manager stays disabled.
 pub fn set_enabled(enabled: bool, override_disabled: bool) -> std::io::Result<()> {
-    remove_run_entry();
-    if !enabled {
-        if task_xml().is_some() {
-            check(schtasks(&["/delete", "/tn", APP_NAME, "/f"])?)?;
+    remove_logon_task();
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let run = hkcu.open_subkey_with_flags(RUN_KEY, KEY_SET_VALUE)?;
+    if enabled {
+        let exe = std::env::current_exe()?;
+        run.set_value(APP_NAME, &format!("\"{}\"", exe.display()))?;
+        if override_disabled || approval().is_none() {
+            let (approved, _) = hkcu.create_subkey(APPROVED_KEY)?;
+            approved.set_raw_value(
+                APP_NAME,
+                &RegValue { vtype: RegType::REG_BINARY, bytes: APPROVED_ENABLED.to_vec().into() },
+            )?;
         }
-        return Ok(());
-    }
-    let exe = std::env::current_exe()?.display().to_string();
-    let escaped = escape_xml(&exe);
-    match task_xml() {
-        Some(xml) if xml.contains("<Enabled>false</Enabled>") && !override_disabled => Ok(()),
-        Some(xml) if xml.contains(&escaped) && !xml.contains("<Enabled>false</Enabled>") => Ok(()),
-        _ => create_task(&escaped),
-    }
-}
-
-fn create_task(exe_escaped: &str) -> std::io::Result<()> {
-    let user = escape_xml(&format!(
-        "{}\\{}",
-        std::env::var("USERDOMAIN").unwrap_or_default(),
-        std::env::var("USERNAME").unwrap_or_default()
-    ));
-    // Priority 5 keeps the normal process priority (the Task Scheduler default, 7, is below normal).
-    let xml = format!(
-        r#"<?xml version="1.0" encoding="UTF-16"?>
-<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
-  <RegistrationInfo><Description>Starts {APP_NAME} at sign-in.</Description></RegistrationInfo>
-  <Triggers><LogonTrigger><Enabled>true</Enabled><UserId>{user}</UserId></LogonTrigger></Triggers>
-  <Principals><Principal id="Author"><UserId>{user}</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>
-  <Settings>
-    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
-    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
-    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
-    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
-    <Priority>5</Priority>
-    <Enabled>true</Enabled>
-  </Settings>
-  <Actions Context="Author"><Exec><Command>"{exe_escaped}"</Command></Exec></Actions>
-</Task>
-"#
-    );
-    let file = std::env::temp_dir().join(format!("{APP_NAME}-task.xml"));
-    // schtasks expects UTF-16 with a byte order mark for this declaration.
-    let mut bytes = vec![0xFF, 0xFE];
-    bytes.extend(xml.encode_utf16().flat_map(u16::to_le_bytes));
-    std::fs::write(&file, bytes)?;
-    let result = schtasks(&["/create", "/tn", APP_NAME, "/xml", &file.to_string_lossy(), "/f"]);
-    let _ = std::fs::remove_file(&file);
-    check(result?)
-}
-
-fn check(out: Output) -> std::io::Result<()> {
-    if out.status.success() {
         Ok(())
     } else {
-        Err(std::io::Error::other(String::from_utf8_lossy(&out.stderr).trim().to_string()))
-    }
-}
-
-/// Removes the registry entries written by versions up to 0.2.0.
-fn remove_run_entry() {
-    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    for key in [RUN_KEY, APPROVED_KEY] {
-        if let Ok(k) = hkcu.open_subkey_with_flags(key, KEY_SET_VALUE) {
-            let _ = k.delete_value(APP_NAME);
+        if let Ok(approved) = hkcu.open_subkey_with_flags(APPROVED_KEY, KEY_SET_VALUE) {
+            let _ = approved.delete_value(APP_NAME);
+        }
+        match run.delete_value(APP_NAME) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            other => other,
         }
     }
 }
 
-fn escape_xml(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn escapes_xml_special_characters() {
-        assert_eq!(escape_xml(r#"C:\A&B\<x>"y".exe"#), r#"C:\A&amp;B\&lt;x&gt;&quot;y&quot;.exe"#);
+/// Deletes the logon task created by version 0.2.1, if present.
+fn remove_logon_task() {
+    let exists = Command::new("schtasks.exe")
+        .args(["/query", "/tn", APP_NAME])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .is_ok_and(|o| o.status.success());
+    if exists {
+        let _ = Command::new("schtasks.exe")
+            .args(["/delete", "/tn", APP_NAME, "/f"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
     }
 }

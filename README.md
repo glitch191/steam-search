@@ -64,7 +64,7 @@ menu (**Open config file**), edit it, then choose **Reload settings**.
 | `hotkey` | `Ctrl+Shift+Insert` | Global shortcut that opens or closes the window. Easiest way to change it: tray menu, **Change hotkey**, then press the new combination (Escape cancels). Modifiers: `Ctrl`, `Shift`, `Alt`, `Win`. `Ins` is accepted for `Insert`. |
 | `maxResults` | `50` | Maximum number of results (1-500). Eight rows are visible, the rest scrolls. |
 | `steamPath` | empty | Steam folder, only needed if automatic detection fails (JSON escaping: `"D:\\Steam"`). |
-| `startWithWindows` | `true` | Starts the program at sign-in through a Task Scheduler task named `steam-search` (created without administrator rights, removed when disabled). A task disabled in Task Scheduler stays disabled. |
+| `startWithWindows` | `true` | Starts the program at sign-in (current user's `Run` registry entry). It appears in Settings > Apps > Startup and in Task Manager, where it can also be turned off; that choice is kept. |
 
 While steam-search runs, the hotkey is captured globally and no longer reaches other applications.
 If another application already uses it, the tray tooltip and the log say so. Invalid values fall
