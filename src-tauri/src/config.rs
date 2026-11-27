@@ -11,6 +11,8 @@ use tauri_plugin_global_shortcut::Shortcut;
 pub const APP_NAME: &str = "steam-search";
 pub const DEFAULT_HOTKEY: &str = "Ctrl+Shift+Insert";
 pub const DEFAULT_MAX_RESULTS: usize = 50;
+pub const DEFAULT_FONT_SIZE: u32 = 16;
+const FONT_SIZE_RANGE: std::ops::RangeInclusive<u64> = 8..=40;
 const MAX_LOG_BYTES: u64 = 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -20,6 +22,10 @@ pub struct Config {
     pub max_results: usize,
     pub steam_path: String,
     pub start_with_windows: bool,
+    /// Font of the game list; empty means the default (Segoe UI).
+    pub font_family: String,
+    /// Font size of the game list, in pixels at 100 % display scaling.
+    pub font_size: u32,
 }
 
 impl Default for Config {
@@ -29,6 +35,8 @@ impl Default for Config {
             max_results: DEFAULT_MAX_RESULTS,
             steam_path: String::new(),
             start_with_windows: true,
+            font_family: String::new(),
+            font_size: DEFAULT_FONT_SIZE,
         }
     }
 }
@@ -96,6 +104,21 @@ pub fn parse(text: &str) -> Config {
         None => {}
         Some(Value::Bool(b)) => config.start_with_windows = *b,
         Some(v) => log(&format!("invalid startWithWindows {v}, using true")),
+    }
+    match json.get("fontFamily") {
+        None => {}
+        // A single family name; characters that could break out of a CSS string are refused.
+        Some(Value::String(s)) if !s.contains(['"', '\\', ';', '{', '}', '\n']) => {
+            config.font_family = s.trim().to_string()
+        }
+        Some(v) => log(&format!("invalid fontFamily {v}, using the default font")),
+    }
+    match json.get("fontSize") {
+        None => {}
+        Some(v) => match v.as_u64() {
+            Some(n) if FONT_SIZE_RANGE.contains(&n) => config.font_size = n as u32,
+            _ => log(&format!("invalid fontSize {v} (expected 8-40), using {DEFAULT_FONT_SIZE}")),
+        },
     }
     config
 }
@@ -197,6 +220,15 @@ mod tests {
         assert_eq!(c.hotkey, "Alt+F2");
         assert_eq!(c.max_results, 20);
         assert_eq!(c.steam_path, r"D:\Steam");
+    }
+
+    #[test]
+    fn font_settings() {
+        let c = parse(r#"{ "fontFamily": " Comic Sans MS ", "fontSize": 20 }"#);
+        assert_eq!((c.font_family.as_str(), c.font_size), ("Comic Sans MS", 20));
+        let c = parse(r#"{ "fontFamily": "x\"; color: red", "fontSize": 200 }"#);
+        assert_eq!((c.font_family.as_str(), c.font_size), ("", DEFAULT_FONT_SIZE));
+        assert_eq!(parse(r#"{ "fontSize": 12.5 }"#).font_size, DEFAULT_FONT_SIZE);
     }
 
     #[test]

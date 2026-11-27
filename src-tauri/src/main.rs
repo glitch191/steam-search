@@ -147,6 +147,20 @@ fn start_hotkey_capture(app: &AppHandle) {
     let _ = app.emit_to(WINDOW, "capture-hotkey", current);
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Appearance {
+    font_family: String,
+    font_size: u32,
+}
+
+/// Font settings of the game list, read by the page at startup and after "appearance-changed".
+#[tauri::command]
+fn appearance(state: State<AppState>) -> Appearance {
+    let config = state.config.lock().unwrap();
+    Appearance { font_family: config.font_family.clone(), font_size: config.font_size }
+}
+
 /// Called by the page once the search field has focus after "shown".
 #[tauri::command]
 fn ready(state: State<AppState>) {
@@ -308,6 +322,7 @@ fn reload_settings(app: &AppHandle) {
     sync_start_with_windows(&config);
     *app.state::<AppState>().config.lock().unwrap() = config;
     apply_hotkey(app);
+    let _ = app.emit_to(WINDOW, "appearance-changed", ());
     start_scan(app);
 }
 
@@ -397,7 +412,7 @@ fn main() {
             shown_at: Mutex::new(None),
             capturing: AtomicBool::new(false),
         })
-        .invoke_handler(tauri::generate_handler![search, launch, hide, fit, ready, set_hotkey])
+        .invoke_handler(tauri::generate_handler![search, launch, hide, fit, ready, set_hotkey, appearance])
         .setup(|app| {
             log(&format!("{APP_NAME} {VERSION} started"));
             sync_start_with_windows(&app.state::<AppState>().config.lock().unwrap());

@@ -12,12 +12,16 @@
   --space-2: 0.5rem;
   --space-3: 0.75rem;
   --space-4: 1rem;
-  --row-height: 2.5rem;
+  --row-height: 2.5em;
   --visible-rows: 8;
   --radius: 4px;
+  --font-default: "Segoe UI", system-ui, sans-serif;
+  /* Game list font, overridden from config.json (fontFamily, fontSize). */
+  --results-font: var(--font-default);
+  --results-font-size: 1rem;
 
   color-scheme: light dark;
-  font-family: "Segoe UI", system-ui, sans-serif;
+  font-family: var(--font-default);
   font-size: 100%;
 }
 
@@ -78,6 +82,9 @@ body {
   padding: var(--space-1) 0;
   list-style: none;
   border-top: 1px solid var(--divider);
+  font-family: var(--results-font);
+  font-size: var(--results-font-size);
+  /* --row-height is in em, so rows follow the list font size. */
   max-height: calc(var(--row-height) * var(--visible-rows) + var(--space-1) * 2);
   overflow-x: hidden;
   overflow-y: auto;
@@ -89,7 +96,6 @@ body {
   min-height: var(--row-height);
   padding: 0 var(--space-4);
   border-left: 3px solid transparent;
-  font-size: 1rem;
   transition: background-color 120ms ease;
 }
 

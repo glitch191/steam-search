@@ -176,8 +176,25 @@ void listen("shown", () => {
 void listen<string>("capture-hotkey", (e) => enterCapture(e.payload));
 void listen("hidden", clear);
 void listen("library-updated", () => void runSearch());
+void listen("appearance-changed", () => void applyAppearance());
 
-void runSearch();
+void applyAppearance().then(runSearch);
+
+interface Appearance {
+  fontFamily: string;
+  fontSize: number;
+}
+
+/** Applies the game list font from config.json. An unknown font falls back to the default one. */
+async function applyAppearance(): Promise<void> {
+  const { fontFamily, fontSize } = await invoke<Appearance>("appearance");
+  const root = document.documentElement.style;
+  if (fontFamily) root.setProperty("--results-font", `"${fontFamily}", var(--font-default)`);
+  else root.removeProperty("--results-font");
+  root.setProperty("--results-font-size", `${fontSize}px`);
+  if (hits.length > 0) render("ok");
+  else fitWindow();
+}
 
 /** Shows a single message line under the field, without results. */
 function showMessage(text: string): void {

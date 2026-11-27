@@ -55,7 +55,9 @@ menu (**Open config file**), edit it, then choose **Reload settings**.
   "hotkey": "Ctrl+Shift+Insert",
   "maxResults": 50,
   "steamPath": "",
-  "startWithWindows": true
+  "startWithWindows": true,
+  "fontFamily": "",
+  "fontSize": 16
 }
 ```
 
@@ -65,6 +67,8 @@ menu (**Open config file**), edit it, then choose **Reload settings**.
 | `maxResults` | `50` | Maximum number of results (1-500). Eight rows are visible, the rest scrolls. |
 | `steamPath` | empty | Steam folder, only needed if automatic detection fails (JSON escaping: `"D:\\Steam"`). |
 | `startWithWindows` | `true` | Starts the program at sign-in (current user's `Run` registry entry). It appears in Settings > Apps > Startup and in Task Manager, where it can also be turned off; that choice is kept. |
+| `fontFamily` | empty | Font of the game list, as one installed font name (`"Consolas"`, `"Comic Sans MS"`). Empty, or a font that is not installed, uses Segoe UI. |
+| `fontSize` | `16` | Font size of the game list in pixels at 100 % display scaling (8-40). Rows grow with it; Windows display scaling still applies on top. |
 
 While steam-search runs, the hotkey is captured globally and no longer reaches other applications.
 If another application already uses it, the tray tooltip and the log say so. Invalid values fall
