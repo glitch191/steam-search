@@ -30,8 +30,8 @@ use tauri_plugin_opener::OpenerExt;
 const WINDOW: &str = "search";
 const SETTINGS: &str = "settings";
 const TRAY: &str = "main";
-/// 40rem at the default 16px font size.
-const WINDOW_WIDTH: f64 = 640.0;
+/// Width before the page reports its own, and the page's minimum (logical pixels).
+const MIN_WINDOW_WIDTH: f64 = 400.0;
 const VERSION: &str = match option_env!("APP_VERSION") {
     Some(v) => v,
     None => env!("CARGO_PKG_VERSION"),
@@ -49,10 +49,8 @@ struct AppState {
     searcher: Mutex<Searcher>,
     config: Mutex<Config>,
     scanning: AtomicBool,
-    /// Logical height requested by the page, reused when the window moves to another monitor.
-    height: Mutex<f64>,
-    /// Physical bottom edge to keep fixed while resizing, when the window sits above the taskbar.
-    bottom_edge: Mutex<Option<i32>>,
+    /// Logical width and height requested by the page, reused when the window moves to another monitor.
+    size: Mutex<(f64, f64)>,
     shown_at: Mutex<Option<Instant>>,
     /// True while the settings window waits for a new hotkey; the global hotkey is unregistered meanwhile.
     capturing: AtomicBool,
@@ -102,19 +100,12 @@ fn hide(app: AppHandle) {
     hide_search(&app);
 }
 
-/// Resizes the window to the page content height (logical pixels), keeping its width.
+/// Resizes the window to the page content (logical pixels) and places it again near the tray icon.
 #[tauri::command]
-fn fit(height: f64, window: WebviewWindow, state: State<AppState>) {
-    let height = height.clamp(1.0, 2000.0);
-    *state.height.lock().unwrap() = height;
-    if let (Ok(size), Ok(scale)) = (window.inner_size(), window.scale_factor()) {
-        let new_height = (height * scale).round() as u32;
-        // Above a bottom taskbar the window grows upward: keep its bottom edge in place.
-        if let (Some(bottom), Ok(pos)) = (*state.bottom_edge.lock().unwrap(), window.outer_position()) {
-            let _ = window.set_position(PhysicalPosition::new(pos.x, bottom - new_height as i32));
-        }
-        let _ = window.set_size(PhysicalSize::new(size.width, new_height));
-    }
+fn fit(width: f64, height: f64, window: WebviewWindow, app: AppHandle) {
+    let size = (width.clamp(MIN_WINDOW_WIDTH, 4000.0), height.clamp(1.0, 2000.0));
+    *app.state::<AppState>().size.lock().unwrap() = size;
+    place_near_tray(&app, &window, size);
 }
 
 /// Applies a hotkey captured by the settings window. On failure the previous hotkey is kept
@@ -280,7 +271,7 @@ fn show_search(app: &AppHandle) {
     let Some(window) = app.get_webview_window(WINDOW) else { return };
     let state = app.state::<AppState>();
     *state.shown_at.lock().unwrap() = Some(Instant::now());
-    place_near_tray(app, &window, *state.height.lock().unwrap());
+    place_near_tray(app, &window, *state.size.lock().unwrap());
     let _ = window.show();
     let _ = window.set_focus();
     let _ = app.emit_to(WINDOW, "shown", ());
@@ -308,7 +299,7 @@ fn toggle_search(app: &AppHandle) {
 /// Places the window just above the tray icon (or below it when the taskbar is at the top),
 /// inside the work area of the monitor that holds the tray, sized for that monitor's scale factor.
 /// Falls back to the bottom right corner of the primary monitor when the icon position is unknown.
-fn place_near_tray(app: &AppHandle, window: &WebviewWindow, height: f64) {
+fn place_near_tray(app: &AppHandle, window: &WebviewWindow, (width, height): (f64, f64)) {
     let icon = app.tray_by_id(TRAY).and_then(|t| t.rect().ok().flatten()).map(|r| {
         let pos = r.position.to_physical::<i32>(1.0);
         let size = r.size.to_physical::<u32>(1.0);
@@ -321,7 +312,7 @@ fn place_near_tray(app: &AppHandle, window: &WebviewWindow, height: f64) {
     let area = monitor.work_area();
     let scale = monitor.scale_factor();
     let margin = (8.0 * scale).round() as i32;
-    let width = ((WINDOW_WIDTH * scale).round() as u32).min(area.size.width * 9 / 10);
+    let width = ((width * scale).round() as u32).min(area.size.width * 9 / 10);
     let height_px = (height * scale).round() as u32;
     let (left, top) = (area.position.x, area.position.y);
     let (right, bottom) = (left + area.size.width as i32, top + area.size.height as i32);
@@ -329,12 +320,8 @@ fn place_near_tray(app: &AppHandle, window: &WebviewWindow, height: f64) {
     let (center_x, icon_y) = icon.unwrap_or((right, bottom));
     let x = (center_x - width as i32 / 2).clamp(left + margin, right - width as i32 - margin);
     let taskbar_at_top = icon_y < top + area.size.height as i32 / 2;
-    let (y, bottom_edge) = if taskbar_at_top {
-        (top + margin, None)
-    } else {
-        (bottom - margin - height_px as i32, Some(bottom - margin))
-    };
-    *app.state::<AppState>().bottom_edge.lock().unwrap() = bottom_edge;
+    // Above a bottom taskbar the window grows upward from a fixed bottom edge.
+    let y = if taskbar_at_top { top + margin } else { bottom - margin - height_px as i32 };
     // Move first so a DPI change between monitors is applied before sizing.
     let _ = window.set_position(PhysicalPosition::new(x, y));
     let _ = window.set_size(PhysicalSize::new(width, height_px));
@@ -468,8 +455,7 @@ fn main() {
             searcher: Mutex::new(Searcher::new()),
             config: Mutex::new(config::load()),
             scanning: AtomicBool::new(false),
-            height: Mutex::new(58.0),
-            bottom_edge: Mutex::new(None),
+            size: Mutex::new((MIN_WINDOW_WIDTH, 58.0)),
             shown_at: Mutex::new(None),
             capturing: AtomicBool::new(false),
         })

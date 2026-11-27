@@ -34,7 +34,11 @@ const statusLine = document.getElementById("status") as HTMLParagraphElement;
 let hits: Hit[] = [];
 let selected = 0;
 let requestId = 0;
+let lastWidth = 0;
 let lastHeight = 0;
+
+/** Narrowest window, in CSS pixels; it widens to show longer names in full. */
+const MIN_WIDTH = 400;
 
 /** Runs a search for the current field value. Stale responses are ignored. */
 async function runSearch(): Promise<void> {
@@ -95,12 +99,16 @@ function render(status: Status): void {
   statusLine.hidden = !showMessage;
 
   updateSelection(-1);
-  // Layout reads after all DOM writes: tooltips for truncated names, then window height.
-  for (const li of rows) {
+  fitWindow();
+}
+
+/** Tooltips for names still cut off, which only happens when the window is at its widest. */
+function updateTooltips(): void {
+  for (const li of list.children as HTMLCollectionOf<HTMLElement>) {
     const span = li.firstElementChild as HTMLElement;
     if (span.scrollWidth > span.clientWidth) li.title = li.textContent ?? "";
+    else li.removeAttribute("title");
   }
-  fitWindow();
 }
 
 function updateSelection(previous: number): void {
@@ -115,13 +123,51 @@ function updateSelection(previous: number): void {
   }
 }
 
+/** Horizontal padding and borders of an element, in CSS pixels. */
+function horizontalChrome(el: Element): number {
+  const s = getComputedStyle(el);
+  return [s.paddingLeft, s.paddingRight, s.borderLeftWidth, s.borderRightWidth].reduce((sum, v) => sum + parseFloat(v), 0);
+}
+
+const measureContext = document.createElement("canvas").getContext("2d");
+
+/**
+ * Width that shows the search field placeholder and every listed name in full, never below
+ * MIN_WIDTH. Independent of the current window width, so resizing does not feed back into it.
+ */
+function contentWidth(): number {
+  let widest = 0;
+  if (measureContext) {
+    measureContext.font = getComputedStyle(input).font;
+    widest = measureContext.measureText(input.placeholder).width + horizontalChrome(input);
+  }
+  const first = list.firstElementChild;
+  if (first) {
+    const scrollbar = list.offsetWidth - list.clientWidth;
+    const rowChrome = horizontalChrome(first) + scrollbar;
+    for (const li of list.children) {
+      widest = Math.max(widest, (li.firstElementChild as HTMLElement).scrollWidth + rowChrome);
+    }
+  }
+  return Math.max(MIN_WIDTH, Math.ceil(widest + horizontalChrome(app)));
+}
+
+/** Asks for a window that fits the content. The window may cap the width at 90 % of the screen. */
 function fitWindow(): void {
+  const width = contentWidth();
   const height = Math.ceil(app.getBoundingClientRect().height);
-  if (height !== lastHeight) {
+  if (width !== lastWidth || height !== lastHeight) {
+    lastWidth = width;
     lastHeight = height;
-    void invoke("fit", { height });
+    void invoke("fit", { width, height });
   }
 }
+
+// A width change can rewrap the status message (new height) and cut off or reveal names.
+new ResizeObserver(() => {
+  updateTooltips();
+  fitWindow();
+}).observe(app);
 
 function launch(index: number): void {
   const hit = hits[index];

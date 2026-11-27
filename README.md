@@ -46,7 +46,7 @@ the window when done.
 - **General**: start with Windows, the keyboard shortcut, the maximum number of results and the
   Steam folder (only needed if automatic detection picks the wrong folder or none; the page shows
   which folder is in use).
-- **Font**: font and size of the game list, chosen from the installed fonts and a list of sizes as in
+- **Font**: font and size of the search box and game list, chosen from the installed fonts and a list of sizes as in
   a word processor, with a preview using your own game names. **Reset to default** returns to
   Segoe UI, 16.
 
@@ -78,8 +78,8 @@ back to their default. Log file: `%APPDATA%\steam-search\steam-search.log`.
 | `maxResults` | `50` | Maximum number of results (1-500). Eight rows are visible, the rest scrolls. |
 | `steamPath` | empty | Steam folder, only needed if automatic detection fails (JSON escaping: `"D:\\Steam"`). |
 | `startWithWindows` | `true` | Starts the program at sign-in (current user's `Run` registry entry). It appears in Settings > Apps > Startup and in Task Manager, where it can also be turned off; that choice is kept. |
-| `fontFamily` | empty | Font of the game list, as one installed font name (`"Consolas"`). Empty, or a font that is not installed, uses Segoe UI. |
-| `fontSize` | `16` | Font size of the game list in pixels at 100 % display scaling (8-40). Rows grow with it; Windows display scaling still applies on top. |
+| `fontFamily` | empty | Font of the search box and game list, as one installed font name (`"Consolas"`). Empty, or a font that is not installed, uses Segoe UI. |
+| `fontSize` | `16` | Font size of the game list in pixels (the search box is 1.125 times larger) at 100 % display scaling (8-40). Rows and the search box grow with it; Windows display scaling still applies on top. |
 
 ## Building and installing from source
 

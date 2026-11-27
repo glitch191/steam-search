@@ -15,7 +15,7 @@
       {
         "label": "search",
         "title": "steam-search",
-        "width": 640,
+        "width": 400,
         "height": 58,
         "visible": false,
         "decorations": false,

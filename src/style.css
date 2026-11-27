@@ -3,7 +3,7 @@
 :root {
   --row-height: 2.5em;
   --visible-rows: 8;
-  /* Game list font, set from the settings (fontFamily, fontSize). */
+  /* Search box and game list font, set from the settings (fontFamily, fontSize). */
   --results-font: var(--font-default);
   --results-font-size: 1rem;
 }
@@ -29,14 +29,17 @@ body {
 
 #query {
   width: 100%;
-  height: 3.5rem;
+  /* Follows the list font. Text is 1.125x the list size (18 px at the default 16); the height is
+     in em so the bar grows with it (56 px at the default). */
+  height: 3.125em;
   padding: 0 var(--space-4);
   border: 0;
   outline: none;
   background: transparent;
   color: var(--text);
   font: inherit;
-  font-size: 1.125rem;
+  font-family: var(--results-font);
+  font-size: calc(var(--results-font-size) * 1.125);
 }
 
 #query::placeholder {
