@@ -123,7 +123,19 @@ pub fn parse(text: &str) -> Config {
     config
 }
 
-/// Writes the config back to disk, for settings changed from the tray menu.
+/// Applies the keys of `patch` (same names as config.json) on top of `config`, with the same
+/// validation as the file: invalid values fall back to their default.
+pub fn merge(config: &Config, patch: &Value) -> Config {
+    let mut json = serde_json::to_value(config).unwrap();
+    if let (Value::Object(target), Value::Object(changes)) = (&mut json, patch) {
+        for (key, value) in changes {
+            target.insert(key.clone(), value.clone());
+        }
+    }
+    parse(&json.to_string())
+}
+
+/// Writes the config back to disk, for settings changed from the settings window.
 pub fn save(config: &Config) {
     let _ = fs::create_dir_all(app_dir());
     if let Err(e) = fs::write(config_path(), serde_json::to_string_pretty(config).unwrap() + "\n") {
@@ -229,6 +241,13 @@ mod tests {
         let c = parse(r#"{ "fontFamily": "x\"; color: red", "fontSize": 200 }"#);
         assert_eq!((c.font_family.as_str(), c.font_size), ("", DEFAULT_FONT_SIZE));
         assert_eq!(parse(r#"{ "fontSize": 12.5 }"#).font_size, DEFAULT_FONT_SIZE);
+    }
+
+    #[test]
+    fn merge_keeps_other_keys_and_validates() {
+        let base = Config { max_results: 20, ..Config::default() };
+        let c = merge(&base, &serde_json::json!({ "fontFamily": "Consolas", "fontSize": 99 }));
+        assert_eq!((c.max_results, c.font_family.as_str(), c.font_size), (20, "Consolas", DEFAULT_FONT_SIZE));
     }
 
     #[test]

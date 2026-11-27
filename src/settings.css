@@ -1,0 +1,237 @@
+@import "./tokens.css";
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.875rem;
+  cursor: default;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 11rem 1fr;
+  height: 100%;
+}
+
+/* ---------- Navigation ---------- */
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-4) var(--space-2);
+  background: var(--surface);
+  border-right: 1px solid var(--divider);
+}
+
+.nav button {
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-left: 3px solid transparent;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+}
+
+.nav button:hover {
+  background: var(--row-hover);
+}
+
+.nav button[aria-selected="true"] {
+  background: var(--row-selected);
+  border-left-color: var(--accent);
+  font-weight: 600;
+}
+
+/* ---------- Pages ---------- */
+
+.content {
+  overflow-y: auto;
+  padding: var(--space-5);
+}
+
+h1 {
+  margin: 0 0 var(--space-4);
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.setting {
+  margin-bottom: var(--space-5);
+}
+
+.label {
+  display: block;
+  margin-bottom: var(--space-2);
+  font-weight: 600;
+}
+
+.hint {
+  margin: var(--space-1) 0 0;
+  color: var(--text-muted);
+}
+
+.hint.intro {
+  margin: calc(var(--space-4) * -0.5) 0 var(--space-4);
+}
+
+.hint.error {
+  color: var(--danger);
+}
+
+.row {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.check {
+  display: inline-flex;
+  gap: var(--space-2);
+  align-items: center;
+  font-weight: 600;
+}
+
+.check input {
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+/* ---------- Controls ---------- */
+
+input[type="text"],
+input[type="number"] {
+  height: 2rem;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+
+input:focus-visible,
+button:focus-visible,
+.picker-list:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+input.number {
+  width: 6rem;
+}
+
+input.wide {
+  width: 100%;
+}
+
+input.hotkey {
+  width: 14rem;
+  font-weight: 600;
+}
+
+input.hotkey.capturing {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+button {
+  height: 2rem;
+  padding: 0 var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+}
+
+button:hover:not(:disabled) {
+  background: var(--row-hover);
+}
+
+button:disabled {
+  color: var(--text-muted);
+}
+
+/* ---------- Font page ---------- */
+
+.font-pickers {
+  display: grid;
+  grid-template-columns: 1fr 6rem;
+  gap: var(--space-4);
+  margin-bottom: var(--space-5);
+}
+
+.picker {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.picker input {
+  width: 100%;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.picker-list {
+  height: 10.5rem;
+  margin: 0;
+  padding: var(--space-1) 0;
+  overflow-y: auto;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-top: 0;
+  border-radius: 0 0 var(--radius) var(--radius);
+}
+
+.picker-list li {
+  padding: 0.2rem var(--space-2);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 0.9375rem;
+}
+
+.picker-list li:hover {
+  background: var(--row-hover);
+}
+
+.picker-list li[aria-selected="true"] {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+/* Same look as the search window's result rows. Fixed height so large sizes do not move the page. */
+.preview {
+  height: 10rem;
+  margin: 0;
+  padding: var(--space-1) 0;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.preview li {
+  display: flex;
+  align-items: center;
+  min-height: 2.5em;
+  padding: 0 var(--space-4);
+  border-left: 3px solid transparent;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.preview li.selected {
+  background: var(--row-selected);
+  border-left-color: var(--accent);
+}

@@ -1,0 +1,50 @@
+/* Colors, spacing and the default font, shared by the search and settings windows. */
+:root {
+  --bg: #ffffff;
+  --surface: #f6f6f6;
+  --text: #1f1f1f;
+  --text-muted: #5c5c5c;
+  --border: #b8b8b8;
+  --divider: #e1e1e1;
+  --row-hover: #f2f2f2;
+  --row-selected: #e3ecf7;
+  --accent: #0b5cad;
+  --accent-text: #ffffff;
+  --danger: #b3261e;
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --radius: 4px;
+  --font-default: "Segoe UI", system-ui, sans-serif;
+
+  color-scheme: light dark;
+  font-family: var(--font-default);
+  font-size: 100%;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #202020;
+    --surface: #2a2a2a;
+    --text: #ececec;
+    --text-muted: #a8a8a8;
+    --border: #555555;
+    --divider: #383838;
+    --row-hover: #2c2c2c;
+    --row-selected: #233548;
+    --accent: #5aa2ea;
+    --accent-text: #0d1b29;
+    --danger: #f2b8b5;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+[hidden] {
+  display: none !important;
+}

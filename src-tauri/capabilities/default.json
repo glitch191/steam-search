@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Search window: listen to backend events and call the app commands.",
-  "windows": ["search"],
+  "description": "Search and settings windows: listen to backend events and call the app commands.",
+  "windows": ["search", "settings"],
   "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
 }

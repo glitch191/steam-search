@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>steam-search settings</title>
+    <script type="module" src="/src/settings.ts"></script>
+  </head>
+  <body>
+    <div class="layout">
+      <nav class="nav" role="tablist" aria-label="Settings sections" aria-orientation="vertical">
+        <button type="button" role="tab" id="tab-general" aria-controls="page-general" aria-selected="true">General</button>
+        <button type="button" role="tab" id="tab-font" aria-controls="page-font" aria-selected="false" tabindex="-1">Font</button>
+      </nav>
+
+      <main class="content">
+        <section id="page-general" role="tabpanel" aria-labelledby="tab-general" class="page">
+          <h1>General</h1>
+
+          <div class="setting">
+            <label class="check">
+              <input type="checkbox" id="start-with-windows" />
+              <span>Start with Windows</span>
+            </label>
+            <p class="hint">Opens steam-search in the system tray when you sign in.</p>
+          </div>
+
+          <div class="setting">
+            <span class="label" id="hotkey-label">Keyboard shortcut</span>
+            <div class="row">
+              <input id="hotkey" class="hotkey" type="text" readonly aria-labelledby="hotkey-label" aria-describedby="hotkey-hint" />
+              <button type="button" id="hotkey-change">Change...</button>
+            </div>
+            <p class="hint" id="hotkey-hint">Opens and closes the search window from anywhere.</p>
+          </div>
+
+          <div class="setting">
+            <label class="label" for="max-results">Maximum number of results</label>
+            <input id="max-results" class="number" type="number" min="1" max="500" step="1" aria-describedby="max-results-hint" />
+            <p class="hint" id="max-results-hint">From 1 to 500. Eight rows are visible at once; the rest scrolls.</p>
+          </div>
+
+          <div class="setting">
+            <label class="label" for="steam-path">Steam folder</label>
+            <input id="steam-path" class="wide" type="text" spellcheck="false" placeholder="Detected automatically" aria-describedby="steam-status" />
+            <p class="hint" id="steam-status"></p>
+          </div>
+        </section>
+
+        <section id="page-font" role="tabpanel" aria-labelledby="tab-font" class="page" hidden>
+          <h1>Font</h1>
+          <p class="hint intro">Font of the game list in the search window.</p>
+
+          <div class="font-pickers">
+            <div class="picker picker-family">
+              <label class="label" for="family-input">Font</label>
+              <input id="family-input" type="text" spellcheck="false" autocomplete="off" role="combobox" aria-controls="family-list" aria-expanded="true" aria-autocomplete="list" />
+              <ul id="family-list" class="picker-list" role="listbox" aria-label="Installed fonts"></ul>
+            </div>
+            <div class="picker picker-size">
+              <label class="label" for="size-input">Size</label>
+              <input id="size-input" type="number" min="8" max="40" step="1" role="combobox" aria-controls="size-list" aria-expanded="true" />
+              <ul id="size-list" class="picker-list" role="listbox" aria-label="Sizes"></ul>
+            </div>
+          </div>
+
+          <div class="setting">
+            <span class="label">Preview</span>
+            <ul class="preview" id="preview" aria-label="Preview of the game list"></ul>
+          </div>
+
+          <button type="button" id="font-reset">Reset to default</button>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>

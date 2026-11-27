@@ -4,6 +4,7 @@ mod autostart;
 mod config;
 #[cfg(debug_assertions)]
 mod demo;
+mod fonts;
 mod search;
 mod steam;
 mod vdf;
@@ -11,18 +12,23 @@ mod vdf;
 use config::{log, Config, APP_NAME};
 use search::{Hit, Searcher};
 use serde::Serialize;
+use serde_json::Value;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::Instant;
 use steam::Game;
 use tauri::image::Image;
-use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, State, WebviewWindow, WindowEvent};
+use tauri::{
+    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, State, WebviewUrl, WebviewWindow,
+    WebviewWindowBuilder, WindowEvent,
+};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use tauri_plugin_opener::OpenerExt;
 
 const WINDOW: &str = "search";
+const SETTINGS: &str = "settings";
 const TRAY: &str = "main";
 /// 40rem at the default 16px font size.
 const WINDOW_WIDTH: f64 = 640.0;
@@ -38,9 +44,6 @@ struct Library {
     games: Vec<Game>,
 }
 
-/// Tray menu entry that shows the current hotkey.
-struct HotkeyMenuItem(MenuItem<tauri::Wry>);
-
 struct AppState {
     library: Mutex<Library>,
     searcher: Mutex<Searcher>,
@@ -51,7 +54,7 @@ struct AppState {
     /// Physical bottom edge to keep fixed while resizing, when the window sits above the taskbar.
     bottom_edge: Mutex<Option<i32>>,
     shown_at: Mutex<Option<Instant>>,
-    /// True while the window waits for a new hotkey; the global hotkey is unregistered meanwhile.
+    /// True while the settings window waits for a new hotkey; the global hotkey is unregistered meanwhile.
     capturing: AtomicBool,
 }
 
@@ -114,8 +117,8 @@ fn fit(height: f64, window: WebviewWindow, state: State<AppState>) {
     }
 }
 
-/// Applies a hotkey captured by the page. On failure the previous hotkey is restored
-/// and the error is returned for display.
+/// Applies a hotkey captured by the settings window. On failure the previous hotkey is kept
+/// and the error is returned for display; capture mode continues.
 #[tauri::command]
 fn set_hotkey(hotkey: String, app: AppHandle) -> Result<(), String> {
     let state = app.state::<AppState>();
@@ -131,20 +134,124 @@ fn set_hotkey(hotkey: String, app: AppHandle) -> Result<(), String> {
     }
     state.capturing.store(false, Ordering::SeqCst);
     config::save(&state.config.lock().unwrap());
-    log(&format!("hotkey changed to {hotkey} from the tray menu"));
-    hide_search(&app);
+    log(&format!("hotkey changed to {hotkey} from the settings window"));
     Ok(())
 }
 
-/// Opens the window in hotkey capture mode. The global hotkey is released so that
-/// pressing the current combination again reaches the window.
-fn start_hotkey_capture(app: &AppHandle) {
-    let state = app.state::<AppState>();
-    state.capturing.store(true, Ordering::SeqCst);
+/// Releases the global hotkey so that pressing the current combination reaches the settings window.
+#[tauri::command]
+fn begin_hotkey_capture(app: AppHandle) {
+    app.state::<AppState>().capturing.store(true, Ordering::SeqCst);
     let _ = app.global_shortcut().unregister_all();
-    let current = state.config.lock().unwrap().hotkey.clone();
-    show_search(app);
-    let _ = app.emit_to(WINDOW, "capture-hotkey", current);
+}
+
+/// Leaves capture mode without a new hotkey: the current one is registered again.
+#[tauri::command]
+fn cancel_hotkey_capture(app: AppHandle) {
+    end_hotkey_capture(&app);
+}
+
+fn end_hotkey_capture(app: &AppHandle) {
+    if app.state::<AppState>().capturing.swap(false, Ordering::SeqCst) {
+        apply_hotkey(app);
+    }
+}
+
+/// What the settings window shows. Field names match config.json.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SettingsView {
+    hotkey: String,
+    max_results: usize,
+    steam_path: String,
+    /// Actual state of the startup entry, which Settings or Task Manager may have turned off.
+    start_with_windows: bool,
+    font_family: String,
+    font_size: u32,
+    /// Steam folder in use (configured or detected), empty when none is found.
+    steam_found_at: String,
+    /// A few installed game names for the font preview.
+    sample_games: Vec<String>,
+}
+
+fn settings_view(app: &AppHandle) -> SettingsView {
+    let state = app.state::<AppState>();
+    let config = state.config.lock().unwrap().clone();
+    let steam_found_at =
+        steam::find_steam_path(&config.steam_path).map(|p| p.display().to_string()).unwrap_or_default();
+    let mut sample_games: Vec<String> = state.library.lock().unwrap().games.iter().map(|g| g.name.clone()).collect();
+    sample_games.sort_by_key(|n| n.to_lowercase());
+    sample_games.truncate(4);
+    SettingsView {
+        hotkey: config.hotkey,
+        max_results: config.max_results,
+        steam_path: config.steam_path,
+        start_with_windows: autostart::is_enabled(),
+        font_family: config.font_family,
+        font_size: config.font_size,
+        steam_found_at,
+        sample_games,
+    }
+}
+
+#[tauri::command]
+fn get_settings(app: AppHandle) -> SettingsView {
+    settings_view(&app)
+}
+
+/// Installed font families. Async so the DirectWrite enumeration runs off the main thread.
+#[tauri::command]
+async fn font_families() -> Vec<String> {
+    fonts::installed_families()
+}
+
+/// Applies and saves the settings in `patch` (config.json key names, hotkey excluded).
+/// Returns the settings as stored, so the window shows values that fell back to their default.
+#[tauri::command]
+fn save_settings(patch: Value, app: AppHandle) -> SettingsView {
+    let state = app.state::<AppState>();
+    let (old, new) = {
+        let mut config = state.config.lock().unwrap();
+        let mut new = config::merge(&config, &patch);
+        new.hotkey = config.hotkey.clone();
+        (std::mem::replace(&mut *config, new.clone()), new)
+    };
+    config::save(&new);
+    if patch.get("startWithWindows").is_some() {
+        // Turned on from here, the entry is enabled even if Task Manager had disabled it.
+        match autostart::set_enabled(new.start_with_windows, true) {
+            Ok(()) => log(&format!("start with Windows {}", if new.start_with_windows { "enabled" } else { "disabled" })),
+            Err(e) => log(&format!("cannot change start with Windows: {e}")),
+        }
+    }
+    if (&old.font_family, old.font_size) != (&new.font_family, new.font_size) {
+        let _ = app.emit_to(WINDOW, "appearance-changed", ());
+    }
+    if old.steam_path != new.steam_path {
+        start_scan(&app);
+    }
+    settings_view(&app)
+}
+
+/// Opens the settings window, or brings it to the front when it is already open.
+fn show_settings(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window(SETTINGS) {
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+        return;
+    }
+    let result = WebviewWindowBuilder::new(app, SETTINGS, WebviewUrl::App("settings.html".into()))
+        .title("steam-search settings")
+        .inner_size(720.0, 640.0)
+        .resizable(false)
+        .maximizable(false)
+        .minimizable(false)
+        .center()
+        .focused(true)
+        .build();
+    if let Err(e) = result {
+        log(&format!("cannot open the settings window: {e}"));
+    }
 }
 
 #[derive(Serialize)]
@@ -185,10 +292,6 @@ fn hide_search(app: &AppHandle) {
         if window.is_visible().unwrap_or(false) {
             let _ = window.hide();
             let _ = app.emit_to(WINDOW, "hidden", ());
-            // Closing the window during a hotkey change cancels it: restore the current hotkey.
-            if app.state::<AppState>().capturing.swap(false, Ordering::SeqCst) {
-                apply_hotkey(app);
-            }
         }
     }
 }
@@ -303,9 +406,6 @@ fn apply_hotkey(app: &AppHandle) -> bool {
     if let Some(tray) = app.tray_by_id(TRAY) {
         let _ = tray.set_tooltip(Some(tooltip));
     }
-    if let Some(item) = app.try_state::<HotkeyMenuItem>() {
-        let _ = item.0.set_text(format!("Change hotkey ({hotkey})..."));
-    }
     registered
 }
 
@@ -316,32 +416,14 @@ fn sync_start_with_windows(config: &Config) {
     }
 }
 
-fn reload_settings(app: &AppHandle) {
-    let config = config::load();
-    log("settings reloaded");
-    sync_start_with_windows(&config);
-    *app.state::<AppState>().config.lock().unwrap() = config;
-    apply_hotkey(app);
-    let _ = app.emit_to(WINDOW, "appearance-changed", ());
-    start_scan(app);
-}
-
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
-    let hotkey = app.state::<AppState>().config.lock().unwrap().hotkey.clone();
-    let hotkey_item = MenuItem::with_id(app, "hotkey", format!("Change hotkey ({hotkey})..."), true, None::<&str>)?;
-    app.manage(HotkeyMenuItem(hotkey_item.clone()));
-    let autostart_item =
-        CheckMenuItem::with_id(app, "autostart", "Start with Windows", true, autostart::is_enabled(), None::<&str>)?;
     let menu = Menu::with_items(
         app,
         &[
             &MenuItem::with_id(app, "open", "Open search", true, None::<&str>)?,
             &MenuItem::with_id(app, "rescan", "Rescan library", true, None::<&str>)?,
-            &autostart_item,
             &PredefinedMenuItem::separator(app)?,
-            &hotkey_item,
-            &MenuItem::with_id(app, "config", "Open config file", true, None::<&str>)?,
-            &MenuItem::with_id(app, "reload", "Reload settings", true, None::<&str>)?,
+            &MenuItem::with_id(app, "settings", "Settings...", true, None::<&str>)?,
             &PredefinedMenuItem::separator(app)?,
             &MenuItem::with_id(app, "version", format!("Version {VERSION}"), false, None::<&str>)?,
             &MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?,
@@ -355,28 +437,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
         .on_menu_event(move |app, event| match event.id().as_ref() {
             "open" => show_search(app),
             "rescan" => start_scan(app),
-            "hotkey" => start_hotkey_capture(app),
-            "autostart" => {
-                let wanted = autostart_item.is_checked().unwrap_or(false);
-                let state = app.state::<AppState>();
-                let mut config = state.config.lock().unwrap();
-                config.start_with_windows = wanted;
-                config::save(&config);
-                match autostart::set_enabled(wanted, true) {
-                    Ok(()) => log(&format!("start with Windows {}", if wanted { "enabled" } else { "disabled" })),
-                    Err(e) => {
-                        log(&format!("cannot change start with Windows: {e}"));
-                        let _ = autostart_item.set_checked(autostart::is_enabled());
-                    }
-                }
-            }
-            "config" => {
-                let _ = config::load(); // creates the file if it was deleted
-                if let Err(e) = app.opener().open_path(config::config_path().to_string_lossy(), None::<&str>) {
-                    log(&format!("cannot open config.json: {e}"));
-                }
-            }
-            "reload" => reload_settings(app),
+            "settings" => show_settings(app),
             "quit" => app.exit(0),
             _ => {}
         })
@@ -412,7 +473,20 @@ fn main() {
             shown_at: Mutex::new(None),
             capturing: AtomicBool::new(false),
         })
-        .invoke_handler(tauri::generate_handler![search, launch, hide, fit, ready, set_hotkey, appearance])
+        .invoke_handler(tauri::generate_handler![
+            search,
+            launch,
+            hide,
+            fit,
+            ready,
+            appearance,
+            get_settings,
+            font_families,
+            save_settings,
+            set_hotkey,
+            begin_hotkey_capture,
+            cancel_hotkey_capture
+        ])
         .setup(|app| {
             log(&format!("{APP_NAME} {VERSION} started"));
             sync_start_with_windows(&app.state::<AppState>().config.lock().unwrap());
@@ -421,12 +495,14 @@ fn main() {
             start_scan(app.handle());
             Ok(())
         })
-        .on_window_event(|window, event| match event {
-            WindowEvent::Focused(false) => hide_search(window.app_handle()),
-            WindowEvent::CloseRequested { api, .. } => {
+        .on_window_event(|window, event| match (window.label(), event) {
+            (WINDOW, WindowEvent::Focused(false)) => hide_search(window.app_handle()),
+            (WINDOW, WindowEvent::CloseRequested { api, .. }) => {
                 api.prevent_close();
                 hide_search(window.app_handle());
             }
+            // Closing the settings window during a hotkey change cancels it.
+            (SETTINGS, WindowEvent::Destroyed) => end_hotkey_capture(window.app_handle()),
             _ => {}
         })
         .run(tauri::generate_context!())

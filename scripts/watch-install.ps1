@@ -8,7 +8,7 @@ New-Item -ItemType Directory -Force (Split-Path $log) | Out-Null
 $watcher = New-Object IO.FileSystemWatcher $root
 $watcher.IncludeSubdirectories = $true
 $watcher.NotifyFilter = [IO.NotifyFilters]"LastWrite, FileName"
-$watched = '\\(src|src-tauri\\src|src-tauri\\icons|src-tauri\\capabilities)\\|\\(index\.html|package\.json|vite\.config\.ts|src-tauri\\Cargo\.toml|src-tauri\\tauri\.conf\.json)$'
+$watched = '\\(src|src-tauri\\src|src-tauri\\icons|src-tauri\\capabilities)\\|\\(index\.html|settings\.html|package\.json|vite\.config\.ts|src-tauri\\Cargo\.toml|src-tauri\\tauri\.conf\.json)$'
 
 while ($true) {
     $change = $watcher.WaitForChanged([IO.WatcherChangeTypes]::All)

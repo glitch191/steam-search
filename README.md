@@ -11,7 +11,7 @@ letters, press Enter.
 
 - Opens just above the system tray icon, on the monitor that holds the taskbar (below it when the
   taskbar is at the top of the screen). The window grows upward as results appear.
-- Starts with Windows by default (setting `startWithWindows`, or the tray menu checkbox).
+- Starts with Windows by default (can be turned off in **Settings**).
 - Scans every Steam library on every drive at startup, then again in the background each time the
   window opens. Results appear from the cache immediately.
 - Lists only fully installed games; Steam tools (Proton, Steam Linux Runtime, Steamworks Common
@@ -38,17 +38,28 @@ the download, compare the file content with:
 The executable is not code-signed, so Windows SmartScreen may warn on first launch ("More info",
 then "Run anyway"). There is no installer: put the file in a folder of your choice and run it.
 
-## Changing the hotkey
+## Settings
 
-Right-click the tray icon and choose **Change hotkey**. The search window asks for the new
-combination: press it (at least one modifier, or a function key alone). It is applied and saved
-immediately. If another application already uses it, the window says so and waits for another
-combination. Escape, or clicking elsewhere, cancels and keeps the current hotkey.
+Right-click the tray icon and choose **Settings...**. Changes apply and are saved immediately; close
+the window when done.
 
-## Configuration
+- **General**: start with Windows, the keyboard shortcut, the maximum number of results and the
+  Steam folder (only needed if automatic detection picks the wrong folder or none; the page shows
+  which folder is in use).
+- **Font**: font and size of the game list, chosen from the installed fonts and a list of sizes as in
+  a word processor, with a preview using your own game names. **Reset to default** returns to
+  Segoe UI, 16.
 
-Settings live in `%APPDATA%\steam-search\config.json`, created on first launch. Open it from the tray
-menu (**Open config file**), edit it, then choose **Reload settings**.
+To change the shortcut, click **Change...** next to it and press the new combination (at least one
+modifier, or a function key alone). If another application already uses it, the page says so and
+waits for another combination. Escape, or clicking elsewhere, cancels and keeps the current one.
+While steam-search runs, the shortcut is captured globally and no longer reaches other applications.
+
+### Configuration file
+
+The settings are stored in `%APPDATA%\steam-search\config.json`, created on first launch. The file is
+read when the program starts, so edit it by hand only with steam-search closed. Invalid values fall
+back to their default. Log file: `%APPDATA%\steam-search\steam-search.log`.
 
 ```json
 {
@@ -63,16 +74,12 @@ menu (**Open config file**), edit it, then choose **Reload settings**.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `hotkey` | `Ctrl+Shift+Insert` | Global shortcut that opens or closes the window. Easiest way to change it: tray menu, **Change hotkey**, then press the new combination (Escape cancels). Modifiers: `Ctrl`, `Shift`, `Alt`, `Win`. `Ins` is accepted for `Insert`. |
+| `hotkey` | `Ctrl+Shift+Insert` | Global shortcut that opens or closes the window. Modifiers: `Ctrl`, `Shift`, `Alt`, `Win`. `Ins` is accepted for `Insert`. |
 | `maxResults` | `50` | Maximum number of results (1-500). Eight rows are visible, the rest scrolls. |
 | `steamPath` | empty | Steam folder, only needed if automatic detection fails (JSON escaping: `"D:\\Steam"`). |
 | `startWithWindows` | `true` | Starts the program at sign-in (current user's `Run` registry entry). It appears in Settings > Apps > Startup and in Task Manager, where it can also be turned off; that choice is kept. |
-| `fontFamily` | empty | Font of the game list, as one installed font name (`"Consolas"`, `"Comic Sans MS"`). Empty, or a font that is not installed, uses Segoe UI. |
+| `fontFamily` | empty | Font of the game list, as one installed font name (`"Consolas"`). Empty, or a font that is not installed, uses Segoe UI. |
 | `fontSize` | `16` | Font size of the game list in pixels at 100 % display scaling (8-40). Rows grow with it; Windows display scaling still applies on top. |
-
-While steam-search runs, the hotkey is captured globally and no longer reaches other applications.
-If another application already uses it, the tray tooltip and the log say so. Invalid values fall
-back to their default. Log file: `%APPDATA%\steam-search\steam-search.log`.
 
 ## Building and installing from source
 
@@ -104,8 +111,10 @@ Actions tab ("Release build"), in which case the files become a workflow artifac
 ## Project structure
 
 ```
-index.html, src/          search window (TypeScript, no framework, Vite)
-src-tauri/src/main.rs     tray, window placement, hotkey, commands
+index.html, src/main.ts   search window (TypeScript, no framework, Vite)
+settings.html, src/settings.ts   settings window
+src-tauri/src/main.rs     tray, window placement, hotkey, settings, commands
+src-tauri/src/fonts.rs    installed font families (DirectWrite)
 src-tauri/src/steam.rs    Steam detection and installed games
 src-tauri/src/vdf.rs      parser for .vdf and .acf files
 src-tauri/src/search.rs   fuzzy search and typo fallback

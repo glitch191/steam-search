@@ -15,8 +15,13 @@ interface SearchResult {
   hits: Hit[];
 }
 
+interface Appearance {
+  fontFamily: string;
+  fontSize: number;
+}
+
 const MESSAGES: Partial<Record<Status, string>> = {
-  "no-steam": "Steam installation not found. Set steamPath in config.json.",
+  "no-steam": "Steam installation not found. Set the Steam folder in Settings (tray icon menu).",
   "no-games": "No installed games found",
   "no-match": "No installed game matches",
 };
@@ -30,14 +35,9 @@ let hits: Hit[] = [];
 let selected = 0;
 let requestId = 0;
 let lastHeight = 0;
-let capturing = false;
-
-const SEARCH_PLACEHOLDER = input.placeholder;
-const MODIFIER_KEYS = new Set(["Control", "Shift", "Alt", "Meta", "OS"]);
 
 /** Runs a search for the current field value. Stale responses are ignored. */
 async function runSearch(): Promise<void> {
-  if (capturing) return;
   const id = ++requestId;
   const result = await invoke<SearchResult>("search", { query: input.value });
   if (id !== requestId) return;
@@ -130,9 +130,6 @@ function launch(index: number): void {
 }
 
 function clear(): void {
-  capturing = false;
-  input.readOnly = false;
-  input.placeholder = SEARCH_PLACEHOLDER;
   input.value = "";
   requestId++;
   hits = [];
@@ -140,13 +137,20 @@ function clear(): void {
   void runSearch();
 }
 
+/** Applies the game list font chosen in Settings. An unknown font falls back to the default one. */
+async function applyAppearance(): Promise<void> {
+  const { fontFamily, fontSize } = await invoke<Appearance>("appearance");
+  const root = document.documentElement.style;
+  if (fontFamily) root.setProperty("--results-font", `"${fontFamily}", var(--font-default)`);
+  else root.removeProperty("--results-font");
+  root.setProperty("--results-font-size", `${fontSize}px`);
+  if (hits.length > 0) render("ok");
+  else fitWindow();
+}
+
 input.addEventListener("input", () => void runSearch());
 
 input.addEventListener("keydown", (e) => {
-  if (capturing) {
-    captureKey(e);
-    return;
-  }
   if (e.key === "ArrowDown" || e.key === "ArrowUp") {
     e.preventDefault();
     if (hits.length === 0) return;
@@ -173,75 +177,8 @@ void listen("shown", () => {
   input.focus();
   void invoke("ready");
 });
-void listen<string>("capture-hotkey", (e) => enterCapture(e.payload));
 void listen("hidden", clear);
 void listen("library-updated", () => void runSearch());
 void listen("appearance-changed", () => void applyAppearance());
 
 void applyAppearance().then(runSearch);
-
-interface Appearance {
-  fontFamily: string;
-  fontSize: number;
-}
-
-/** Applies the game list font from config.json. An unknown font falls back to the default one. */
-async function applyAppearance(): Promise<void> {
-  const { fontFamily, fontSize } = await invoke<Appearance>("appearance");
-  const root = document.documentElement.style;
-  if (fontFamily) root.setProperty("--results-font", `"${fontFamily}", var(--font-default)`);
-  else root.removeProperty("--results-font");
-  root.setProperty("--results-font-size", `${fontSize}px`);
-  if (hits.length > 0) render("ok");
-  else fitWindow();
-}
-
-/** Shows a single message line under the field, without results. */
-function showMessage(text: string): void {
-  hits = [];
-  list.replaceChildren();
-  list.hidden = true;
-  statusLine.textContent = text;
-  statusLine.hidden = false;
-  fitWindow();
-}
-
-function enterCapture(current: string): void {
-  capturing = true;
-  requestId++;
-  input.value = "";
-  input.readOnly = true;
-  input.placeholder = "Press the new shortcut";
-  input.focus();
-  showMessage(`Current shortcut: ${current}. Press Escape to cancel.`);
-}
-
-/** Builds a hotkey string such as "Ctrl+Shift+Insert" from a key press, or null while only modifiers are held. */
-function hotkeyFromEvent(e: KeyboardEvent): string | null {
-  if (MODIFIER_KEYS.has(e.key)) return null;
-  const parts: string[] = [];
-  if (e.ctrlKey) parts.push("Ctrl");
-  if (e.altKey) parts.push("Alt");
-  if (e.shiftKey) parts.push("Shift");
-  if (e.metaKey) parts.push("Win");
-  const key = e.code.replace(/^Key(?=[A-Z]$)/, "").replace(/^Digit(?=\d$)/, "");
-  parts.push(key);
-  return parts.join("+");
-}
-
-function captureKey(e: KeyboardEvent): void {
-  e.preventDefault();
-  const plain = !e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey;
-  if (e.key === "Escape" && plain) {
-    void invoke("hide");
-    return;
-  }
-  const hotkey = hotkeyFromEvent(e);
-  if (!hotkey) return;
-  input.value = hotkey;
-  if (plain && !/^F\d+$/.test(e.code)) {
-    showMessage("Use at least one modifier (Ctrl, Alt, Shift or Win), or a function key.");
-    return;
-  }
-  invoke("set_hotkey", { hotkey }).catch((error: unknown) => showMessage(String(error)));
-}
